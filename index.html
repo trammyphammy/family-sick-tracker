@@ -397,28 +397,30 @@ function projectSchedule(pid) {
   if (!pat) return [];
   const allDoses = getPatientDoses(pid);
   const motrinDoses = allDoses.filter(d => d.med === 'motrin').sort((a,b) => b.time - a.time);
-  if (!motrinDoses.length) return [];
-
-  const anchor = motrinDoses[0].time;
   const now = Date.now();
-  const horizon = now + 40 * 3600000; // 40h ahead covers today + tomorrow
+  const horizon = now + 40 * 3600000;
   const scheduled = [];
 
-  // Motrin: every 6h from anchor
-  for (let t = anchor + 6*3600000; t <= horizon; t += 6*3600000) {
-    if (!alreadyLogged(allDoses, 'motrin', t))
-      scheduled.push({ time:t, medKey:'motrin', cond:isNightTime(t) });
+  // Motrin/Tylenol rotation — only fires when there's a logged Motrin to anchor from
+  if (motrinDoses.length) {
+    const anchor = motrinDoses[0].time;
+    for (let t = anchor + 6*3600000; t <= horizon; t += 6*3600000) {
+      if (!alreadyLogged(allDoses, 'motrin', t))
+        scheduled.push({ time:t, medKey:'motrin', cond:isNightTime(t) });
+    }
+    for (let t = anchor + 3*3600000; t <= horizon; t += 6*3600000) {
+      if (!alreadyLogged(allDoses, 'tylenol', t))
+        scheduled.push({ time:t, medKey:'tylenol', cond:isNightTime(t) });
+    }
   }
-  // Tylenol: every 6h starting 3h after anchor
-  for (let t = anchor + 3*3600000; t <= horizon; t += 6*3600000) {
-    if (!alreadyLogged(allDoses, 'tylenol', t))
-      scheduled.push({ time:t, medKey:'tylenol', cond:isNightTime(t) });
+
+  // Zyrtec: ALWAYS daily at 10am — independent of whether rotation anchor exists
+  if (pat.meds['zyrtec']) {
+    [nextDailyAt(10), nextDailyAt(10) + 86400000].forEach(t => {
+      if (t <= horizon && !alreadyLogged(allDoses, 'zyrtec', t))
+        scheduled.push({ time:t, medKey:'zyrtec', cond:false });
+    });
   }
-  // Zyrtec: daily at 10am
-  [nextDailyAt(10), nextDailyAt(10) + 86400000].forEach(t => {
-    if (t <= horizon && !alreadyLogged(allDoses, 'zyrtec', t))
-      scheduled.push({ time:t, medKey:'zyrtec', cond:false });
-  });
 
   return scheduled.sort((a,b) => a.time - b.time);
 }
@@ -469,6 +471,10 @@ function renderGrid() {
   body.appendChild(nowLine);
 
   const pats = getActivePats();
+  // precompute schedule once per patient so it's not recalculated per cell
+  const schedByPid = {};
+  pats.forEach(([pid]) => { schedByPid[pid] = projectSchedule(pid); });
+
   const startSlot = widgetMode ? Math.max(0, Math.floor(msToSlot(Date.now(), 'today')) - 1) : 0;
   const endSlot = widgetMode ? startSlot + 8 : SLOTS_PER_DAY;
 
@@ -512,14 +518,16 @@ function renderGrid() {
         });
 
         if (logged.length === 0) {
-          // show rotation schedule chips
-          const sched = projectSchedule(pid);
+          const sched = schedByPid[pid];
+          const hasRotation = sched.some(s => s.medKey === 'motrin' || s.medKey === 'tylenol');
+
+          // draw scheduled/rotation chips that land in this slot
           sched.forEach(s => {
             const projSlot = msToSlot(s.time, day);
             if (Math.floor(projSlot) !== i) return;
             if (projSlot < 0 || projSlot >= SLOTS_PER_DAY) return;
             const slotStart = slotMs(i, day);
-            if (slotStart < Date.now() - SLOT_MS) return; // past slot
+            if (slotStart < Date.now() - SLOT_MS) return;
             const med = pat.meds[s.medKey];
             if (!med) return;
             const nowDue = isToday && slotStart <= Date.now() && Date.now() < slotStart + SLOT_MS;
@@ -532,9 +540,12 @@ function renderGrid() {
             cell.appendChild(chip);
           });
 
-          // fallback: if no rotation (no Motrin logged yet), show ghost for immediate availability
-          if (!projectSchedule(pid).length) {
-            Object.entries(pat.meds).forEach(([medKey, med]) => {
+          // ghost chips for Motrin/Tylenol only when no rotation anchor yet (no Motrin logged)
+          // Zyrtec is already handled above via schedule — never show it as a ghost here
+          if (!hasRotation) {
+            ['motrin', 'tylenol'].forEach(medKey => {
+              const med = pat.meds[medKey];
+              if (!med) return;
               const projected = nextProjected(pid, medKey);
               if (projected === null) return;
               const projSlot = msToSlot(projected, day);
