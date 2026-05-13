@@ -122,6 +122,10 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:'DM Sans
   background:transparent;border:1px solid var(--red);
   color:var(--red);font-size:9.5px
 }
+/* rotation schedule chips */
+.chip.sched{background:transparent;border:1.5px solid;opacity:.65;font-size:10px}
+.chip.sched.cond{border-style:dashed;opacity:.32;font-size:9.5px}
+.chip.sched.now-due{opacity:.9;animation:pulse-chip 1.8s ease-in-out infinite}
 @keyframes pulse-chip{
   0%,100%{opacity:.55;box-shadow:0 0 0 0 currentColor}
   50%{opacity:1;box-shadow:0 0 8px 1px currentColor}
@@ -371,6 +375,54 @@ function nextProjected(pid, medKey) {
   return null;
 }
 
+// ─── ROTATION SCHEDULE ───────────────────────────────────────────────────────
+// Builds the fever-rotation plan from the last logged Motrin dose:
+//   Motrin every 6h, Tylenol 3h offset every 6h, Zyrtec daily at 10am.
+//   Overnight slots (10pm–7am) are marked conditional (💤 if wakes).
+function isNightTime(ms) {
+  const h = new Date(ms).getHours();
+  return h >= 22 || h < 7;
+}
+function nextDailyAt(hour) {
+  const d = new Date(); d.setHours(hour, 0, 0, 0);
+  if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+  return d.getTime();
+}
+function alreadyLogged(allDoses, medKey, targetTime) {
+  const WIN = 25 * 60 * 1000; // ±25 min window
+  return allDoses.some(d => d.med === medKey && Math.abs(d.time - targetTime) < WIN);
+}
+function projectSchedule(pid) {
+  const pat = patients[pid];
+  if (!pat) return [];
+  const allDoses = getPatientDoses(pid);
+  const motrinDoses = allDoses.filter(d => d.med === 'motrin').sort((a,b) => b.time - a.time);
+  if (!motrinDoses.length) return [];
+
+  const anchor = motrinDoses[0].time;
+  const now = Date.now();
+  const horizon = now + 40 * 3600000; // 40h ahead covers today + tomorrow
+  const scheduled = [];
+
+  // Motrin: every 6h from anchor
+  for (let t = anchor + 6*3600000; t <= horizon; t += 6*3600000) {
+    if (!alreadyLogged(allDoses, 'motrin', t))
+      scheduled.push({ time:t, medKey:'motrin', cond:isNightTime(t) });
+  }
+  // Tylenol: every 6h starting 3h after anchor
+  for (let t = anchor + 3*3600000; t <= horizon; t += 6*3600000) {
+    if (!alreadyLogged(allDoses, 'tylenol', t))
+      scheduled.push({ time:t, medKey:'tylenol', cond:isNightTime(t) });
+  }
+  // Zyrtec: daily at 10am
+  [nextDailyAt(10), nextDailyAt(10) + 86400000].forEach(t => {
+    if (t <= horizon && !alreadyLogged(allDoses, 'zyrtec', t))
+      scheduled.push({ time:t, medKey:'zyrtec', cond:false });
+  });
+
+  return scheduled.sort((a,b) => a.time - b.time);
+}
+
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 function render() {
   renderDayBanner();
@@ -460,24 +512,44 @@ function renderGrid() {
         });
 
         if (logged.length === 0) {
-          Object.entries(pat.meds).forEach(([medKey, med]) => {
-            const projected = nextProjected(pid, medKey);
-            if (projected === null) return;
-            const projSlot = msToSlot(projected, day);
+          // show rotation schedule chips
+          const sched = projectSchedule(pid);
+          sched.forEach(s => {
+            const projSlot = msToSlot(s.time, day);
             if (Math.floor(projSlot) !== i) return;
+            if (projSlot < 0 || projSlot >= SLOTS_PER_DAY) return;
             const slotStart = slotMs(i, day);
-            if (slotStart < Date.now() - SLOT_MS) return;
-            const isCurrent = isToday && slotStart <= Date.now() && Date.now() < slotStart + SLOT_MS;
-            const ghost = document.createElement('div');
-            ghost.className = isCurrent ? 'chip available' : 'chip ghost';
-            if (isCurrent) {
-              ghost.style.color = med.color;
-              ghost.style.borderColor = med.color;
-            }
-            ghost.textContent = `${med.name} ${med.dose_ml}ml`;
-            ghost.style.pointerEvents = 'none';
-            cell.appendChild(ghost);
+            if (slotStart < Date.now() - SLOT_MS) return; // past slot
+            const med = pat.meds[s.medKey];
+            if (!med) return;
+            const nowDue = isToday && slotStart <= Date.now() && Date.now() < slotStart + SLOT_MS;
+            const chip = document.createElement('div');
+            chip.className = 'chip sched' + (s.cond ? ' cond' : '') + (nowDue ? ' now-due' : '');
+            chip.style.color = med.color;
+            chip.style.borderColor = med.color;
+            chip.textContent = (s.cond ? '💤 ' : '') + `${med.name} ${med.dose_ml}ml`;
+            chip.addEventListener('click', e => { e.stopPropagation(); openModal(pid, i, day); });
+            cell.appendChild(chip);
           });
+
+          // fallback: if no rotation (no Motrin logged yet), show ghost for immediate availability
+          if (!projectSchedule(pid).length) {
+            Object.entries(pat.meds).forEach(([medKey, med]) => {
+              const projected = nextProjected(pid, medKey);
+              if (projected === null) return;
+              const projSlot = msToSlot(projected, day);
+              if (Math.floor(projSlot) !== i) return;
+              const slotStart = slotMs(i, day);
+              if (slotStart < Date.now() - SLOT_MS) return;
+              const isCurrent = isToday && slotStart <= Date.now() && Date.now() < slotStart + SLOT_MS;
+              const ghost = document.createElement('div');
+              ghost.className = isCurrent ? 'chip available' : 'chip ghost';
+              if (isCurrent) { ghost.style.color = med.color; ghost.style.borderColor = med.color; }
+              ghost.textContent = `${med.name} ${med.dose_ml}ml`;
+              ghost.style.pointerEvents = 'none';
+              cell.appendChild(ghost);
+            });
+          }
         }
 
         cell.addEventListener('click', () => openModal(pid, i, day));
