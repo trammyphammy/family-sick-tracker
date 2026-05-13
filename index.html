@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Family Sick Tracker</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0f0f13;--surface:#18181f;--border:#2e2e3a;
+  --txt:#e8e6f0;--muted:#666;--dim:#3a3a4a;
+  --tylenol:#7ee8a2;--motrin:#f5a623;--zyrtec:#a78bfa;
+  --red:#f07167;--now:#ffffff;
+}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:'DM Sans',sans-serif;overflow:hidden}
+
+/* ─── LAYOUT ─── */
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+
+/* ─── HEADER ─── */
+#header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border);
+  flex-shrink:0;gap:8px;z-index:20
+}
+#header h1{font-size:.9rem;font-weight:600;color:var(--txt);white-space:nowrap}
+#day-toggle{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0}
+#day-toggle button{
+  padding:6px 12px;background:transparent;border:none;color:var(--muted);
+  font-family:'DM Sans',sans-serif;font-size:.8rem;cursor:pointer;transition:all .15s
+}
+#day-toggle button.active{background:var(--dim);color:var(--txt)}
+#add-patient-btn{
+  padding:6px 10px;background:transparent;border:1px solid var(--border);border-radius:8px;
+  color:var(--muted);font-size:.8rem;cursor:pointer;white-space:nowrap
+}
+
+/* ─── GRID ─── */
+#grid-wrapper{flex:1;overflow:hidden;display:flex;flex-direction:column}
+#col-headers{
+  display:flex;flex-shrink:0;
+  background:var(--bg);border-bottom:1px solid var(--border);z-index:15
+}
+.col-header-time{width:56px;flex-shrink:0}
+.col-header-patient{
+  flex:1;text-align:center;padding:8px 4px;
+  font-size:.7rem;font-weight:600;letter-spacing:.06em;color:var(--muted);
+  border-left:1px solid var(--border);cursor:pointer;position:relative;min-width:100px
+}
+.col-header-patient:active{background:var(--dim)}
+
+#grid-body{
+  flex:1;overflow-y:auto;overflow-x:auto;position:relative;
+  -webkit-overflow-scrolling:touch
+}
+#grid-inner{position:relative}
+
+.slot-row{display:flex;border-bottom:1px solid #1e1e28;min-height:44px;position:relative}
+.slot-row.overnight{background:rgba(120,100,255,.03)}
+.slot-row.hour-boundary{border-bottom-color:var(--border)}
+
+.time-label{
+  width:56px;flex-shrink:0;padding:4px 8px 0;
+  font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);
+  position:sticky;left:0;background:var(--bg);z-index:5;
+  display:flex;align-items:flex-start;justify-content:flex-end
+}
+.time-label .moon{font-size:9px;margin-left:3px;opacity:.5}
+
+.slot-cell{
+  flex:1;min-height:44px;border-left:1px solid #1e1e28;
+  padding:3px 4px;display:flex;flex-wrap:wrap;align-content:flex-start;
+  gap:3px;cursor:pointer;position:relative;min-width:100px
+}
+.slot-cell:active{background:rgba(255,255,255,.04)}
+
+/* ─── CHIPS ─── */
+.chip{
+  display:inline-flex;align-items:center;gap:3px;
+  padding:3px 7px;border-radius:20px;
+  font-family:'DM Mono',monospace;font-size:10px;font-weight:500;
+  white-space:nowrap;cursor:pointer;user-select:none
+}
+.chip.logged{color:#0f0f13}
+.chip.available{
+  background:transparent;border:1.5px dashed;
+  animation:pulse-chip 1.8s ease-in-out infinite
+}
+.chip.cooling{
+  background:#252535;border:1px solid var(--border);
+  color:var(--muted);cursor:default
+}
+.chip.ghost{
+  background:transparent;border:1px dashed var(--dim);
+  color:var(--muted);font-size:9px
+}
+.chip.maxed{
+  background:transparent;border:1px solid var(--red);
+  color:var(--red);font-size:9px
+}
+@keyframes pulse-chip{
+  0%,100%{opacity:.6;box-shadow:0 0 0 0 currentColor}
+  50%{opacity:1;box-shadow:0 0 6px 1px currentColor}
+}
+
+/* ─── CURRENT TIME LINE ─── */
+#now-line{
+  position:absolute;left:0;right:0;height:2px;
+  background:var(--now);z-index:10;pointer-events:none
+}
+#now-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--now);
+  position:absolute;left:50px;top:-3px
+}
+#now-label{
+  position:absolute;right:4px;top:-9px;
+  font-family:'DM Mono',monospace;font-size:9px;color:var(--now);opacity:.7
+}
+
+/* ─── USER SELECT OVERLAY ─── */
+#user-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.85);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:20px;z-index:100;padding:24px
+}
+#user-overlay h2{font-size:1.2rem;font-weight:600;color:var(--txt)}
+#user-overlay p{font-size:.85rem;color:var(--muted);text-align:center}
+.user-btn{
+  width:100%;max-width:280px;padding:18px;
+  background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  color:var(--txt);font-family:'DM Sans',sans-serif;font-size:1rem;font-weight:600;
+  cursor:pointer
+}
+.user-btn:active{background:var(--dim)}
+
+/* ─── BOTTOM SHEET MODAL ─── */
+#modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;
+  display:none;align-items:flex-end
+}
+#modal-overlay.open{display:flex}
+#modal-sheet{
+  width:100%;background:var(--surface);border-radius:18px 18px 0 0;
+  padding:20px 16px 32px;max-height:80vh;overflow-y:auto
+}
+#modal-handle{
+  width:36px;height:4px;border-radius:2px;background:var(--border);
+  margin:0 auto 16px
+}
+#modal-title{font-size:1rem;font-weight:600;margin-bottom:4px}
+#modal-subtitle{font-size:.8rem;color:var(--muted);margin-bottom:16px}
+.who-row{
+  display:flex;gap:8px;margin-bottom:16px;padding-bottom:16px;
+  border-bottom:1px solid var(--border)
+}
+.who-btn{
+  flex:1;padding:10px;background:var(--bg);border:1px solid var(--border);
+  border-radius:10px;color:var(--muted);font-family:'DM Sans',sans-serif;
+  font-size:.85rem;cursor:pointer;text-align:center
+}
+.who-btn.active{border-color:var(--txt);color:var(--txt);background:var(--dim)}
+.med-option{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 12px;border:1px solid var(--border);border-radius:12px;
+  margin-bottom:8px;cursor:pointer;background:var(--bg)
+}
+.med-option:active{background:var(--dim)}
+.med-option.unavailable{opacity:.5;cursor:default}
+.med-name{font-size:.95rem;font-weight:500}
+.med-dose{font-family:'DM Mono',monospace;font-size:.8rem;color:var(--muted)}
+.med-status{font-size:.78rem;text-align:right}
+.med-status.ok{color:var(--tylenol)}
+.med-status.warn{color:var(--motrin)}
+.med-status.bad{color:var(--red)}
+
+/* ─── DOSE DETAIL MODAL ─── */
+#dose-modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:55;
+  display:none;align-items:flex-end
+}
+#dose-modal-overlay.open{display:flex}
+#dose-sheet{
+  width:100%;background:var(--surface);border-radius:18px 18px 0 0;
+  padding:20px 16px 32px
+}
+#dose-info{margin-bottom:20px}
+#dose-info .label{font-size:.75rem;color:var(--muted);margin-bottom:2px}
+#dose-info .value{font-size:.95rem;font-weight:500}
+#undo-btn{
+  width:100%;padding:14px;background:transparent;
+  border:1px solid var(--red);border-radius:12px;color:var(--red);
+  font-family:'DM Sans',sans-serif;font-size:.9rem;cursor:pointer
+}
+#undo-btn:disabled{opacity:.3;cursor:default}
+#close-dose-btn{
+  width:100%;padding:14px;background:var(--dim);
+  border:none;border-radius:12px;color:var(--txt);
+  font-family:'DM Sans',sans-serif;font-size:.9rem;cursor:pointer;margin-top:8px
+}
+
+/* ─── TOAST ─── */
+#toast{
+  position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+  background:#252535;border:1px solid var(--border);border-radius:10px;
+  padding:10px 18px;font-size:.85rem;color:var(--txt);
+  z-index:90;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap
+}
+#toast.show{opacity:1}
+
+/* ─── WIDGET MODE ─── */
+body.widget{overflow:auto}
+body.widget #app{height:auto;overflow:auto}
+body.widget #header{display:none}
+body.widget #col-headers{position:sticky;top:0}
+#widget-tap-target{
+  position:fixed;inset:0;z-index:1;cursor:pointer;display:none
+}
+body.widget #widget-tap-target{display:block}
+</style>
+</head>
+<body>
+
+<div id="user-overlay" style="display:none">
+  <h2>Who are you?</h2>
+  <p>Your name will be saved to this device</p>
+  <button class="user-btn" onclick="setUser('Trammy')">Trammy</button>
+  <button class="user-btn" onclick="setUser('Thai')">Thai</button>
+</div>
+
+<div id="app">
+  <div id="header">
+    <h1>🩹 Sick Tracker</h1>
+    <div id="day-toggle">
+      <button id="btn-today" class="active" onclick="setDay('today')">Today</button>
+      <button id="btn-tomorrow" onclick="setDay('tomorrow')">Tomorrow</button>
+    </div>
+    <button id="add-patient-btn" onclick="openAddPatient()">+ Patient</button>
+  </div>
+
+  <div id="grid-wrapper">
+    <div id="col-headers">
+      <div class="col-header-time"></div>
+      <!-- patient headers rendered here -->
+    </div>
+    <div id="grid-body">
+      <div id="grid-inner">
+        <div id="now-line"><div id="now-dot"></div><div id="now-label"></div></div>
+        <!-- slot rows rendered here -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Log Dose Modal -->
+<div id="modal-overlay" onclick="closeModal(event)">
+  <div id="modal-sheet">
+    <div id="modal-handle"></div>
+    <div id="modal-title"></div>
+    <div id="modal-subtitle"></div>
+    <div class="who-row" id="who-row"></div>
+    <div id="med-list"></div>
+  </div>
+</div>
+
+<!-- Dose Detail Modal -->
+<div id="dose-modal-overlay" onclick="closeDoseModal(event)">
+  <div id="dose-sheet">
+    <div id="modal-handle" style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px"></div>
+    <div id="dose-info"></div>
+    <button id="undo-btn" onclick="undoDose()">Undo this dose</button>
+    <button id="close-dose-btn" onclick="closeDoseModal()">Close</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="widget-tap-target" onclick="window.location.href=window.location.href.replace('?widget=true','')"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+import { getDatabase, ref, onValue, push, set, remove, get } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js";
+
+// ─── FIREBASE ────────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyA-ViwbyagAh8PrHNDhWaD925y92klNjSc",
+  authDomain: "family-sick-tracker.firebaseapp.com",
+  databaseURL: "https://family-sick-tracker-default-rtdb.firebaseio.com",
+  projectId: "family-sick-tracker",
+  storageBucket: "family-sick-tracker.firebasestorage.app",
+  messagingSenderId: "236213895069",
+  appId: "1:236213895069:web:550ccc6f65355ea9d4b974"
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getDatabase(fbApp);
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const SLOT_H = 44; // px per 30-min slot
+const SLOT_MS = 30 * 60 * 1000;
+const SLOTS_PER_DAY = 48;
+const COL_HDR_H = 36;
+const USERS = ['Trammy', 'Thai'];
+const MED_COLORS = { tylenol:'#7ee8a2', motrin:'#f5a623', zyrtec:'#a78bfa' };
+const INITIAL_PATIENTS = {
+  jack: {
+    name: 'Jack', type: 'infant', weight_lbs: 17.5, age_months: 10, active: true,
+    meds: {
+      tylenol: { name:'Tylenol', dose_ml:3.75, interval_hours:4, max_per_24h:5, color:'#7ee8a2' },
+      motrin:  { name:'Motrin',  dose_ml:2,    interval_hours:6, max_per_24h:4, color:'#f5a623' },
+      zyrtec:  { name:'Zyrtec',  dose_ml:2.5,  interval_hours:24,max_per_24h:1, color:'#a78bfa' },
+    }
+  }
+};
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let patients = {};
+let doses = {};
+let selectedDay = 'today';
+let currentUser = localStorage.getItem('sick-tracker-user');
+let modalCtx = null;    // { patientId, slotIndex, slotMs }
+let doseCtx = null;     // { doseKey, patientId, dose }
+let widgetMode = new URLSearchParams(location.search).has('widget');
+
+// ─── TIME UTILS ───────────────────────────────────────────────────────────────
+function getDayStart(day = selectedDay) {
+  const d = day === 'today' ? new Date() : new Date(Date.now() + 86400000);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+function slotMs(i) { return getDayStart() + i * SLOT_MS; }
+function msToSlot(ms) { return (ms - getDayStart()) / SLOT_MS; }
+function fmt(ms) {
+  const d = new Date(ms);
+  let h = d.getHours(), m = d.getMinutes();
+  const ap = h >= 12 ? 'pm' : 'am';
+  h = h % 12 || 12;
+  return `${h}:${m.toString().padStart(2,'0')}${ap}`;
+}
+function fmtDuration(ms) {
+  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function slotLabel(i) {
+  const d = new Date(slotMs(i));
+  const h = d.getHours(), m = d.getMinutes();
+  if (m !== 0) return '';
+  const ap = h >= 12 ? 'pm' : 'am';
+  return `${h % 12 || 12}${ap}`;
+}
+function isOvernight(i) {
+  const h = new Date(slotMs(i)).getHours();
+  return h >= 22 || h < 6;
+}
+
+// ─── MED LOGIC ────────────────────────────────────────────────────────────────
+function getPatientDoses(pid) {
+  return Object.entries(doses[pid] || {}).map(([k, d]) => ({ key: k, ...d }));
+}
+
+function medStatus(pid, medKey, atMs = Date.now()) {
+  const pat = patients[pid];
+  if (!pat) return { s: 'unknown' };
+  const med = pat.meds[medKey];
+  if (!med) return { s: 'unknown' };
+  const intervalMs = med.interval_hours * 3600000;
+  const allDoses = getPatientDoses(pid).filter(d => d.med === medKey);
+  const before = allDoses.filter(d => d.time <= atMs).sort((a, b) => b.time - a.time);
+  // daily max check
+  const in24h = before.filter(d => d.time >= atMs - 86400000);
+  if (in24h.length >= med.max_per_24h) return { s: 'maxed' };
+  if (!before.length) return { s: 'available' };
+  const last = before[0];
+  const nextAvail = last.time + intervalMs;
+  if (nextAvail <= atMs) return { s: 'available' };
+  return { s: 'cooling', nextAvail, remaining: nextAvail - atMs, last };
+}
+
+function slotDoses(pid, slotIndex) {
+  const start = slotMs(slotIndex), end = start + SLOT_MS;
+  return getPatientDoses(pid).filter(d => d.time >= start && d.time < end);
+}
+
+function nextProjected(pid, medKey) {
+  const st = medStatus(pid, medKey);
+  if (st.s === 'available') return Date.now();
+  if (st.s === 'cooling') return st.nextAvail;
+  return null;
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+function render() {
+  renderHeaders();
+  renderGrid();
+  updateNowLine();
+}
+
+function renderHeaders() {
+  const hdrs = document.getElementById('col-headers');
+  const activePats = Object.entries(patients).filter(([k, p]) => p.active);
+  hdrs.innerHTML = `<div class="col-header-time"></div>` +
+    activePats.map(([pid, p]) =>
+      `<div class="col-header-patient" data-pid="${pid}">${p.name.toUpperCase()}</div>`
+    ).join('');
+}
+
+function renderGrid() {
+  const body = document.getElementById('grid-inner');
+  const nowLine = document.getElementById('now-line');
+  body.innerHTML = '';
+  body.appendChild(nowLine);
+
+  const activePats = Object.entries(patients).filter(([k, p]) => p.active);
+  const startSlot = widgetMode ? Math.max(0, Math.floor(msToSlot(Date.now())) - 1) : 0;
+  const endSlot = widgetMode ? startSlot + 8 : SLOTS_PER_DAY;
+
+  for (let i = startSlot; i < endSlot; i++) {
+    const row = document.createElement('div');
+    row.className = 'slot-row' +
+      (isOvernight(i) ? ' overnight' : '') +
+      (i % 2 === 0 ? ' hour-boundary' : '');
+    row.style.height = SLOT_H + 'px';
+
+    const lbl = document.createElement('div');
+    lbl.className = 'time-label';
+    const labelText = slotLabel(i);
+    lbl.innerHTML = labelText
+      ? labelText + (isOvernight(i) ? '<span class="moon">🌙</span>' : '')
+      : '';
+    row.appendChild(lbl);
+
+    for (const [pid, pat] of activePats) {
+      const cell = document.createElement('div');
+      cell.className = 'slot-cell';
+      cell.dataset.pid = pid;
+      cell.dataset.slot = i;
+
+      // logged doses in this slot
+      const logged = slotDoses(pid, i);
+      logged.forEach(d => {
+        const med = pat.meds[d.med];
+        if (!med) return;
+        const chip = document.createElement('div');
+        chip.className = 'chip logged';
+        chip.style.background = med.color;
+        chip.textContent = `${med.name} ${med.dose_ml}ml`;
+        chip.dataset.doseKey = d.key;
+        chip.dataset.pid = pid;
+        chip.addEventListener('click', e => { e.stopPropagation(); openDoseDetail(pid, d.key, d); });
+        cell.appendChild(chip);
+      });
+
+      // ghost projected dose chips (if no logged dose in slot)
+      if (logged.length === 0) {
+        Object.entries(pat.meds).forEach(([medKey, med]) => {
+          const projected = nextProjected(pid, medKey);
+          if (projected === null) return;
+          const projSlot = msToSlot(projected);
+          if (Math.floor(projSlot) !== i) return;
+          // check it's actually in the future
+          const slotStart = slotMs(i);
+          if (slotStart < Date.now() - SLOT_MS) return;
+          const ghost = document.createElement('div');
+          ghost.className = 'chip ghost';
+          const isCurrent = slotStart <= Date.now() && Date.now() < slotStart + SLOT_MS;
+          if (isCurrent) {
+            ghost.className = 'chip available';
+            ghost.style.color = med.color;
+            ghost.style.borderColor = med.color;
+          }
+          ghost.textContent = `${med.name} ${med.dose_ml}ml`;
+          ghost.style.pointerEvents = 'none';
+          cell.appendChild(ghost);
+        });
+      }
+
+      cell.addEventListener('click', () => openModal(pid, i));
+      row.appendChild(cell);
+    }
+
+    body.appendChild(row);
+  }
+
+  // scroll to now on initial render
+  if (!widgetMode && !renderGrid._scrolled) {
+    renderGrid._scrolled = true;
+    setTimeout(scrollToNow, 50);
+  }
+}
+
+function updateNowLine() {
+  const nowLine = document.getElementById('now-line');
+  const nowLabel = document.getElementById('now-label');
+  const nowSlot = msToSlot(Date.now());
+  if (selectedDay !== 'today' || nowSlot < 0 || nowSlot >= SLOTS_PER_DAY) {
+    nowLine.style.display = 'none';
+    return;
+  }
+  nowLine.style.display = 'block';
+  nowLine.style.top = (nowSlot * SLOT_H) + 'px';
+  nowLabel.textContent = fmt(Date.now());
+}
+
+function scrollToNow() {
+  const body = document.getElementById('grid-body');
+  const nowSlot = msToSlot(Date.now());
+  const targetY = (nowSlot * SLOT_H) - (body.clientHeight / 2) + COL_HDR_H;
+  body.scrollTop = Math.max(0, targetY);
+}
+
+// ─── MODAL ────────────────────────────────────────────────────────────────────
+function openModal(pid, slotIndex) {
+  const pat = patients[pid];
+  if (!pat) return;
+  modalCtx = { pid, slotIndex, slotMs: slotMs(slotIndex) };
+  const time = slotMs(slotIndex);
+  document.getElementById('modal-title').textContent = pat.name;
+  document.getElementById('modal-subtitle').textContent =
+    `${fmt(time)} – ${fmt(time + SLOT_MS)}`;
+
+  // who row
+  const whoRow = document.getElementById('who-row');
+  whoRow.innerHTML = USERS.map(u =>
+    `<button class="who-btn ${currentUser === u ? 'active' : ''}" onclick="setUser('${u}');renderModalMeds()">${u}</button>`
+  ).join('');
+
+  renderModalMeds();
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+window.renderModalMeds = function() {
+  if (!modalCtx) return;
+  const { pid, slotMs: atMs } = modalCtx;
+  const pat = patients[pid];
+  const list = document.getElementById('med-list');
+  list.innerHTML = '';
+  Object.entries(pat.meds).forEach(([medKey, med]) => {
+    const st = medStatus(pid, medKey, atMs + SLOT_MS / 2);
+    const available = st.s === 'available';
+    const div = document.createElement('div');
+    div.className = 'med-option' + (!available ? ' unavailable' : '');
+    let statusHtml = '';
+    let statusClass = '';
+    if (st.s === 'available') { statusHtml = '✓ Available'; statusClass = 'ok'; }
+    else if (st.s === 'cooling') {
+      statusHtml = `Next in ${fmtDuration(st.remaining)}`;
+      statusClass = 'warn';
+    }
+    else if (st.s === 'maxed') { statusHtml = 'Max reached today'; statusClass = 'bad'; }
+    div.innerHTML = `
+      <div>
+        <div class="med-name" style="color:${med.color}">${med.name}</div>
+        <div class="med-dose">${med.dose_ml}ml · every ${med.interval_hours}h</div>
+      </div>
+      <div class="med-status ${statusClass}">${statusHtml}</div>`;
+    if (available) {
+      div.addEventListener('click', () => logDose(pid, medKey));
+    } else if (st.s === 'cooling') {
+      div.addEventListener('click', () => {
+        if (confirm(`${med.name} was given recently.\nNext dose: ${fmt(st.nextAvail)}\n\nGive anyway?`)) {
+          logDose(pid, medKey, true);
+        }
+      });
+    } else if (st.s === 'maxed') {
+      div.addEventListener('click', () => {
+        if (confirm(`${med.name} has reached its daily max.\n\nGive anyway?`)) {
+          logDose(pid, medKey, true);
+        }
+      });
+    }
+    list.appendChild(div);
+  });
+}
+
+window.closeModal = function(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').classList.remove('open');
+  modalCtx = null;
+}
+
+// ─── DOSE DETAIL ─────────────────────────────────────────────────────────────
+function openDoseDetail(pid, doseKey, dose) {
+  doseCtx = { pid, doseKey, dose };
+  const pat = patients[pid];
+  const med = pat?.meds[dose.med];
+  const info = document.getElementById('dose-info');
+  const canUndo = Date.now() - dose.time < 5 * 60 * 1000;
+  info.innerHTML = `
+    <div class="label">Patient</div>
+    <div class="value" style="margin-bottom:12px">${pat?.name || pid}</div>
+    <div class="label">Medication</div>
+    <div class="value" style="color:${med?.color || '#fff'};margin-bottom:12px">${med?.name || dose.med} — ${dose.dose_ml}ml</div>
+    <div class="label">Time given</div>
+    <div class="value" style="margin-bottom:12px">${fmt(dose.time)}</div>
+    <div class="label">Logged by</div>
+    <div class="value" style="margin-bottom:20px">${dose.logged_by || 'Unknown'}</div>`;
+  const undoBtn = document.getElementById('undo-btn');
+  undoBtn.disabled = !canUndo;
+  undoBtn.title = canUndo ? '' : 'Undo only available within 5 minutes';
+  document.getElementById('dose-modal-overlay').classList.add('open');
+}
+
+window.closeDoseModal = function(e) {
+  if (e && e.target !== document.getElementById('dose-modal-overlay')) return;
+  document.getElementById('dose-modal-overlay').classList.remove('open');
+  doseCtx = null;
+}
+
+window.undoDose = async function() {
+  if (!doseCtx) return;
+  const { pid, doseKey } = doseCtx;
+  await remove(ref(db, `doses/${pid}/${doseKey}`));
+  showToast('Dose removed');
+  closeDoseModal();
+}
+
+// ─── LOG DOSE ─────────────────────────────────────────────────────────────────
+async function logDose(pid, medKey, override = false) {
+  if (!currentUser) { setUserAndLog(pid, medKey); return; }
+  const pat = patients[pid];
+  const med = pat.meds[medKey];
+  const time = modalCtx?.slotMs ? modalCtx.slotMs + SLOT_MS / 2 : Date.now();
+  const doseData = {
+    med: medKey,
+    time: Math.round(time),
+    dose_ml: med.dose_ml,
+    logged_by: currentUser,
+    override: override || false,
+  };
+  await push(ref(db, `doses/${pid}`), doseData);
+  document.getElementById('modal-overlay').classList.remove('open');
+  modalCtx = null;
+  showToast(`${med.name} ${med.dose_ml}ml logged for ${pat.name}`);
+}
+
+// ─── USER ─────────────────────────────────────────────────────────────────────
+window.setUser = function(name) {
+  currentUser = name;
+  localStorage.setItem('sick-tracker-user', name);
+  document.getElementById('user-overlay').style.display = 'none';
+  // update who buttons in modal if open
+  document.querySelectorAll('.who-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent === name);
+  });
+}
+
+function setUserAndLog(pid, medKey) {
+  // show user overlay then re-trigger
+  document.getElementById('user-overlay').style.display = 'flex';
+}
+
+// ─── DAY TOGGLE ───────────────────────────────────────────────────────────────
+window.setDay = function(day) {
+  selectedDay = day;
+  renderGrid._scrolled = false;
+  document.getElementById('btn-today').classList.toggle('active', day === 'today');
+  document.getElementById('btn-tomorrow').classList.toggle('active', day === 'tomorrow');
+  render();
+}
+
+// ─── ADD PATIENT (placeholder) ────────────────────────────────────────────────
+window.openAddPatient = function() {
+  const name = prompt('Patient name:');
+  if (!name) return;
+  const pid = name.toLowerCase().replace(/\s+/g, '_');
+  set(ref(db, `patients/${pid}`), {
+    name, type: 'adult', active: true,
+    meds: {
+      tylenol: { name:'Tylenol', dose_ml:1000, interval_hours:6, max_per_24h:4, color:'#7ee8a2' },
+      motrin:  { name:'Motrin',  dose_ml:400,  interval_hours:8, max_per_24h:3, color:'#f5a623' },
+    }
+  });
+}
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ─── FIREBASE LISTENERS ───────────────────────────────────────────────────────
+onValue(ref(db, 'patients'), snap => {
+  patients = snap.val() || {};
+  render();
+});
+
+onValue(ref(db, 'doses'), snap => {
+  doses = snap.val() || {};
+  render();
+});
+
+// ─── SEED DATA ────────────────────────────────────────────────────────────────
+get(ref(db, 'patients')).then(snap => {
+  if (!snap.exists()) {
+    set(ref(db, 'patients'), INITIAL_PATIENTS);
+  }
+});
+
+// ─── WIDGET MODE ──────────────────────────────────────────────────────────────
+if (widgetMode) {
+  document.body.classList.add('widget');
+}
+
+// ─── CLOCK ────────────────────────────────────────────────────────────────────
+setInterval(() => {
+  updateNowLine();
+  // re-render ghost chips every minute to update availability
+  renderGrid._scrolled = true; // don't re-scroll
+  renderGrid();
+}, 60000);
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+if (!currentUser) {
+  document.getElementById('user-overlay').style.display = 'flex';
+}
+</script>
+</body>
+</html>
